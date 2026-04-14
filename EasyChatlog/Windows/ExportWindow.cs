@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using EasyChatlog.Models;
 using EasyChatlog.Services;
 
 namespace EasyChatlog.Windows;
@@ -12,7 +14,11 @@ namespace EasyChatlog.Windows;
 public sealed class ExportWindow : Window, IDisposable
 {
     private readonly Plugin plugin;
-    private string senderFilter = "";
+
+    // Known senders collected from the buffer, refreshed every draw.
+    private readonly HashSet<string> selectedSenders = new(StringComparer.OrdinalIgnoreCase);
+    private string[] knownSenders = [];
+    private string senderSearch = "";
 
     public ExportWindow(Plugin plugin)
         : base("Easy Chatlog###EasyChatlogMain", ImGuiWindowFlags.None)
@@ -30,10 +36,24 @@ public sealed class ExportWindow : Window, IDisposable
     public override void Draw()
     {
         var cfg = plugin.Configuration;
+        var snapshot = plugin.Buffer.SnapshotHistory();
 
+        // Refresh known senders list from buffer.
+        knownSenders = snapshot
+            .Select(e => e.Sender)
+            .Where(s => !string.IsNullOrEmpty(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        // --- toolbar ---
         if (ImGui.Button("Open Settings")) plugin.ToggleConfigUi();
         ImGui.SameLine();
-        if (ImGui.Button("Clear buffer")) plugin.Buffer.ClearHistory();
+        if (ImGui.Button("Clear buffer"))
+        {
+            plugin.Buffer.ClearHistory();
+            selectedSenders.Clear();
+        }
         ImGui.SameLine();
         var enabled = cfg.DiscordEnabled;
         if (ImGui.Checkbox("Discord live-forward", ref enabled))
@@ -44,29 +64,26 @@ public sealed class ExportWindow : Window, IDisposable
 
         ImGui.Separator();
 
-        ImGui.Text("Filter sender:");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(220);
-        ImGui.InputText("##senderFilter", ref senderFilter, 64);
+        // --- sender multi-select ---
+        DrawSenderFilter();
 
+        ImGui.Separator();
+
+        // --- export / send buttons ---
+        if (ImGui.Button("Export TXT"))  _ = ExportAsync(ExportFormat.Txt);
         ImGui.SameLine();
-        if (ImGui.Button("Export TXT"))      _ = ExportAsync(ExportFormat.Txt);
+        if (ImGui.Button("Export JSON")) _ = ExportAsync(ExportFormat.Json);
         ImGui.SameLine();
-        if (ImGui.Button("Export JSON"))     _ = ExportAsync(ExportFormat.Json);
+        if (ImGui.Button("Export HTML")) _ = ExportAsync(ExportFormat.Html);
         ImGui.SameLine();
-        if (ImGui.Button("Export HTML"))     _ = ExportAsync(ExportFormat.Html);
-        ImGui.SameLine();
-        if (ImGui.Button("Export MD"))       _ = ExportAsync(ExportFormat.Markdown);
+        if (ImGui.Button("Export MD"))   _ = ExportAsync(ExportFormat.Markdown);
         ImGui.SameLine();
         if (ImGui.Button("Send filtered to Discord")) _ = SendFilteredToDiscordAsync();
 
         ImGui.Separator();
 
-        var snapshot = plugin.Buffer.SnapshotHistory();
-        var filtered = string.IsNullOrWhiteSpace(senderFilter)
-            ? snapshot
-            : snapshot.Where(e => e.Sender.Contains(senderFilter, StringComparison.OrdinalIgnoreCase)).ToList();
-
+        // --- table ---
+        var filtered = ApplyFilter(snapshot);
         ImGui.Text($"Showing {filtered.Count} / {snapshot.Count} entries");
 
         if (ImGui.BeginTable("##chatTable", 4,
@@ -79,7 +96,6 @@ public sealed class ExportWindow : Window, IDisposable
             ImGui.TableSetupColumn("Message", ImGuiTableColumnFlags.WidthStretch);
             ImGui.TableHeadersRow();
 
-            // newest first
             for (var i = filtered.Count - 1; i >= 0; i--)
             {
                 var e = filtered[i];
@@ -94,9 +110,61 @@ public sealed class ExportWindow : Window, IDisposable
         }
     }
 
+    private void DrawSenderFilter()
+    {
+        ImGui.Text("Filter by sender(s):");
+        ImGui.SameLine();
+
+        if (selectedSenders.Count == 0)
+        {
+            ImGui.TextDisabled("(all)");
+        }
+        else
+        {
+            ImGui.TextDisabled($"({selectedSenders.Count} selected)");
+        }
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Clear filter"))
+            selectedSenders.Clear();
+
+        // Search box to narrow the sender list.
+        ImGui.SetNextItemWidth(200);
+        ImGui.InputTextWithHint("##senderSearch", "Search sender...", ref senderSearch, 64);
+
+        // Compact checkbox list — show senders matching the search.
+        var visibleSenders = string.IsNullOrWhiteSpace(senderSearch)
+            ? knownSenders
+            : knownSenders.Where(s => s.Contains(senderSearch, StringComparison.OrdinalIgnoreCase)).ToArray();
+
+        if (visibleSenders.Length > 0 && ImGui.BeginChild("##senderList", new Vector2(0, Math.Min(visibleSenders.Length * 24 + 4, 120)), true))
+        {
+            foreach (var name in visibleSenders)
+            {
+                var selected = selectedSenders.Contains(name);
+                if (ImGui.Checkbox(name, ref selected))
+                {
+                    if (selected)
+                        selectedSenders.Add(name);
+                    else
+                        selectedSenders.Remove(name);
+                }
+            }
+            ImGui.EndChild();
+        }
+    }
+
+    private List<ChatLogEntry> ApplyFilter(IReadOnlyList<ChatLogEntry> snapshot)
+    {
+        if (selectedSenders.Count == 0)
+            return snapshot.ToList();
+
+        return snapshot.Where(e => selectedSenders.Contains(e.Sender)).ToList();
+    }
+
     private async Task ExportAsync(ExportFormat fmt)
     {
-        var entries = FilteredSnapshot();
+        var entries = ApplyFilter(plugin.Buffer.SnapshotHistory());
         if (entries.Count == 0)
         {
             plugin.Notify("Nothing to export.");
@@ -116,7 +184,7 @@ public sealed class ExportWindow : Window, IDisposable
 
     private async Task SendFilteredToDiscordAsync()
     {
-        var entries = FilteredSnapshot();
+        var entries = ApplyFilter(plugin.Buffer.SnapshotHistory());
         if (entries.Count == 0)
         {
             plugin.Notify("Nothing to send.");
@@ -139,12 +207,5 @@ public sealed class ExportWindow : Window, IDisposable
         {
             plugin.Notify($"Discord send failed: {ex.Message}");
         }
-    }
-
-    private System.Collections.Generic.List<Models.ChatLogEntry> FilteredSnapshot()
-    {
-        var snapshot = plugin.Buffer.SnapshotHistory();
-        if (string.IsNullOrWhiteSpace(senderFilter)) return snapshot.ToList();
-        return snapshot.Where(e => e.Sender.Contains(senderFilter, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 }

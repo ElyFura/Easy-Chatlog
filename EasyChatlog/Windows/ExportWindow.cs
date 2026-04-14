@@ -15,8 +15,8 @@ public sealed class ExportWindow : Window, IDisposable
 {
     private readonly Plugin plugin;
 
-    // Known senders collected from the buffer, refreshed every draw.
-    private readonly HashSet<string> selectedSenders = new(StringComparer.OrdinalIgnoreCase);
+    // Sender filter lives on ChatBuffer so both UI and live-forward share it.
+    private HashSet<string> SelectedSenders => plugin.Buffer.SelectedSenders;
     private string[] knownSenders = [];
     private string senderSearch = "";
 
@@ -52,7 +52,7 @@ public sealed class ExportWindow : Window, IDisposable
         if (ImGui.Button("Clear buffer"))
         {
             plugin.Buffer.ClearHistory();
-            selectedSenders.Clear();
+            SelectedSenders.Clear();
         }
         ImGui.SameLine();
         var enabled = cfg.DiscordEnabled;
@@ -115,18 +115,19 @@ public sealed class ExportWindow : Window, IDisposable
         ImGui.Text("Filter by sender(s):");
         ImGui.SameLine();
 
-        if (selectedSenders.Count == 0)
-        {
-            ImGui.TextDisabled("(all)");
-        }
+        int count;
+        lock (SelectedSenders) { count = SelectedSenders.Count; }
+
+        if (count == 0)
+            ImGui.TextDisabled("(all — live-forward sends everything)");
         else
-        {
-            ImGui.TextDisabled($"({selectedSenders.Count} selected)");
-        }
+            ImGui.TextDisabled($"({count} selected — live-forward + export use this filter)");
 
         ImGui.SameLine();
         if (ImGui.SmallButton("Clear filter"))
-            selectedSenders.Clear();
+        {
+            lock (SelectedSenders) { SelectedSenders.Clear(); }
+        }
 
         // Search box to narrow the sender list.
         ImGui.SetNextItemWidth(200);
@@ -137,17 +138,21 @@ public sealed class ExportWindow : Window, IDisposable
             ? knownSenders
             : knownSenders.Where(s => s.Contains(senderSearch, StringComparison.OrdinalIgnoreCase)).ToArray();
 
-        if (visibleSenders.Length > 0 && ImGui.BeginChild("##senderList", new Vector2(0, Math.Min(visibleSenders.Length * 24 + 4, 120)), true))
+        if (visibleSenders.Length > 0 && ImGui.BeginChild("##senderList", new Vector2(0, Math.Min(visibleSenders.Length * 24 + 8, 200)), true))
         {
             foreach (var name in visibleSenders)
             {
-                var selected = selectedSenders.Contains(name);
+                bool selected;
+                lock (SelectedSenders) { selected = SelectedSenders.Contains(name); }
                 if (ImGui.Checkbox(name, ref selected))
                 {
-                    if (selected)
-                        selectedSenders.Add(name);
-                    else
-                        selectedSenders.Remove(name);
+                    lock (SelectedSenders)
+                    {
+                        if (selected)
+                            SelectedSenders.Add(name);
+                        else
+                            SelectedSenders.Remove(name);
+                    }
                 }
             }
             ImGui.EndChild();
@@ -156,10 +161,13 @@ public sealed class ExportWindow : Window, IDisposable
 
     private List<ChatLogEntry> ApplyFilter(IReadOnlyList<ChatLogEntry> snapshot)
     {
-        if (selectedSenders.Count == 0)
-            return snapshot.ToList();
+        lock (SelectedSenders)
+        {
+            if (SelectedSenders.Count == 0)
+                return snapshot.ToList();
 
-        return snapshot.Where(e => selectedSenders.Contains(e.Sender)).ToList();
+            return snapshot.Where(e => SelectedSenders.Contains(e.Sender)).ToList();
+        }
     }
 
     private async Task ExportAsync(ExportFormat fmt)

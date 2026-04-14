@@ -28,6 +28,12 @@ public sealed class ChatBuffer : IDisposable
     private readonly LinkedList<ChatLogEntry> history = new();
     private readonly object historyLock = new();
 
+    /// <summary>
+    /// Sender names selected in the UI. When non-empty, live-forward only sends
+    /// messages from these senders. Thread-safe via lock on the set itself.
+    /// </summary>
+    public HashSet<string> SelectedSenders { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     public ChatBuffer(Configuration config, IDiscordSender? discord, IPluginLog log)
     {
         this.config = config;
@@ -109,7 +115,17 @@ public sealed class ChatBuffer : IDisposable
                     {
                         try
                         {
-                            await discord.SendBatchAsync(batch, cts.Token).ConfigureAwait(false);
+                            // Apply sender filter: if senders are selected, only forward their messages.
+                            ChatLogEntry[] toSend;
+                            lock (SelectedSenders)
+                            {
+                                toSend = SelectedSenders.Count == 0
+                                    ? batch
+                                    : batch.Where(e => SelectedSenders.Contains(e.Sender)).ToArray();
+                            }
+
+                            if (toSend.Length > 0)
+                                await discord.SendBatchAsync(toSend, cts.Token).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {

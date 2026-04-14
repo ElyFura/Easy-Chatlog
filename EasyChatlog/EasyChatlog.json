@@ -1,0 +1,13 @@
+{
+  "Author": "ElyFura",
+  "Name": "Easy Chatlog",
+  "Punchline": "Export your chat and forward it to Discord.",
+  "Description": "Captures your in-game chat, exports it (txt/json/html/md) and optionally forwards it live to a Discord channel via webhook or bot. Type /easychatlog to open the main window or /easychatlog config for settings.",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "chat",
+    "log",
+    "export",
+    "discord"
+  ]
+}

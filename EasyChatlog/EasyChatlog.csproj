@@ -1,0 +1,13 @@
+<Project Sdk="Dalamud.NET.Sdk/14.0.2">
+
+  <PropertyGroup>
+    <Version>0.1.0.0</Version>
+    <Description>Export your FFXIV chatlog and forward it to Discord.</Description>
+    <PackageProjectUrl>https://github.com/elyfura/easy-chatlog</PackageProjectUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Discord.Net.WebSocket" Version="3.17.4" />
+  </ItemGroup>
+
+</Project>

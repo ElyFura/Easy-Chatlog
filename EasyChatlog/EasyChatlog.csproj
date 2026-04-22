@@ -1,7 +1,7 @@
 <Project Sdk="Dalamud.NET.Sdk/14.0.2">
 
   <PropertyGroup>
-    <Version>0.1.0.2</Version>
+    <Version>0.1.0.3</Version>
     <Description>Export your FFXIV chatlog and forward it to Discord.</Description>
     <PackageProjectUrl>https://github.com/elyfura/easy-chatlog</PackageProjectUrl>
   </PropertyGroup>

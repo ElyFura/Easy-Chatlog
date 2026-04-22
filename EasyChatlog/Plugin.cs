@@ -19,6 +19,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
     [PluginService] internal static IClientState ClientState { get; private set; } = null!;
+    [PluginService] internal static IPlayerState PlayerState { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     private const string MainCommand = "/easychatlog";
@@ -29,7 +30,16 @@ public sealed class Plugin : IDalamudPlugin
     public IDiscordSender? DiscordSender { get; private set; }
     public string DefaultExportDirectory { get; }
     public string EffectiveExportDirectory =>
-        string.IsNullOrWhiteSpace(Configuration.ExportDirectory) ? DefaultExportDirectory : Configuration.ExportDirectory;
+        string.IsNullOrWhiteSpace(ActiveCharConfig.ExportDirectory) ? DefaultExportDirectory : ActiveCharConfig.ExportDirectory;
+
+    /// <summary>
+    /// Profile assigned to the logged-in character, or the default profile when no one is logged in.
+    /// </summary>
+    public ConfigProfile ActiveProfile =>
+        Configuration.GetProfileForCharacter(PlayerState.ContentId);
+
+    /// <summary>Settings payload of the <see cref="ActiveProfile"/>.</summary>
+    public CharacterConfig ActiveCharConfig => ActiveProfile.Config;
 
     private readonly WindowSystem windows = new("EasyChatlog");
     private readonly ConfigWindow configWindow;
@@ -39,13 +49,14 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        Configuration.Migrate();
 
         DefaultExportDirectory = Path.Combine(
             PluginInterface.GetPluginConfigDirectory(), "exports");
 
         DiscordSender = BuildDiscordSender();
-        Buffer = new ChatBuffer(Configuration, DiscordSender, Log);
-        capture = new ChatCaptureService(ChatGui, Log, Configuration, Buffer);
+        Buffer = new ChatBuffer(() => ActiveCharConfig, () => DiscordSender, Log);
+        capture = new ChatCaptureService(ChatGui, Log, () => ActiveCharConfig, Buffer);
 
         configWindow = new ConfigWindow(this);
         exportWindow = new ExportWindow(this);
@@ -66,11 +77,21 @@ public sealed class Plugin : IDalamudPlugin
             ShowInHelp = false,
         });
 
+        ClientState.Login  += OnLogin;
+        ClientState.Logout += OnLogout;
+
+        // If a character is already logged in when the plugin loads, persist any newly created config.
+        if (PlayerState.ContentId != 0)
+            SaveConfiguration();
+
         Log.Information("Easy Chatlog loaded.");
     }
 
     public void Dispose()
     {
+        ClientState.Login  -= OnLogin;
+        ClientState.Logout -= OnLogout;
+
         CommandManager.RemoveHandler(MainCommand);
         CommandManager.RemoveHandler(ShortCommand);
 
@@ -98,12 +119,34 @@ public sealed class Plugin : IDalamudPlugin
 
     private IDiscordSender? BuildDiscordSender()
     {
-        return Configuration.Mode switch
+        var cfg = ActiveCharConfig;
+        return cfg.Mode switch
         {
-            DiscordMode.Webhook => new DiscordWebhookSender(Configuration, Log),
-            DiscordMode.Bot     => new DiscordBotSender(Configuration, Log),
+            DiscordMode.Webhook => new DiscordWebhookSender(cfg, Log),
+            DiscordMode.Bot     => new DiscordBotSender(cfg, Log),
             _ => null,
         };
+    }
+
+    private void OnLogin()
+    {
+        var cid = PlayerState.ContentId;
+        if (cid != 0)
+        {
+#pragma warning disable CS0618
+            var name = ClientState.LocalPlayer?.Name.TextValue;
+#pragma warning restore CS0618
+            if (!string.IsNullOrEmpty(name))
+                Configuration.CharacterNames[cid] = name;
+        }
+        RebuildDiscordSender();
+        SaveConfiguration();
+        Log.Information("Easy Chatlog: loaded profile '{0}' for character {1}.", ActiveProfile.Name, cid);
+    }
+
+    private void OnLogout(int type, int code)
+    {
+        Log.Information("Easy Chatlog: character logged out.");
     }
 
     public Task SendDiscordTestAsync()
@@ -169,9 +212,9 @@ public sealed class Plugin : IDalamudPlugin
                 break;
 
             case "discord":
-                Configuration.DiscordEnabled = rest.Equals("on", StringComparison.OrdinalIgnoreCase);
+                ActiveCharConfig.DiscordEnabled = rest.Equals("on", StringComparison.OrdinalIgnoreCase);
                 SaveConfiguration();
-                Notify($"Discord live-forward {(Configuration.DiscordEnabled ? "ENABLED" : "DISABLED")}.");
+                Notify($"Discord live-forward {(ActiveCharConfig.DiscordEnabled ? "ENABLED" : "DISABLED")}.");
                 break;
 
             default:
@@ -185,8 +228,8 @@ public sealed class Plugin : IDalamudPlugin
         "json" => ExportFormat.Json,
         "html" => ExportFormat.Html,
         "md" or "markdown" => ExportFormat.Markdown,
-        "txt" or "" => Configuration.DefaultExportFormat,
-        _ => Configuration.DefaultExportFormat,
+        "txt" or "" => ActiveCharConfig.DefaultExportFormat,
+        _ => ActiveCharConfig.DefaultExportFormat,
     };
 
     private async Task QuickExportAsync(ExportFormat fmt)
@@ -200,7 +243,7 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             var path = await ChatExporter.ExportAsync(entries, EffectiveExportDirectory, fmt);
-            Notify($"Exported {entries.Count} entries → {path}");
+            Notify($"Exported {entries.Count} entries -> {path}");
         }
         catch (Exception ex)
         {

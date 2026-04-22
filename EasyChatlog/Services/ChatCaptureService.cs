@@ -10,14 +10,14 @@ public sealed class ChatCaptureService : IDisposable
 {
     private readonly IChatGui chatGui;
     private readonly IPluginLog log;
-    private readonly Configuration config;
+    private readonly Func<CharacterConfig> getConfig;
     private readonly ChatBuffer buffer;
 
-    public ChatCaptureService(IChatGui chatGui, IPluginLog log, Configuration config, ChatBuffer buffer)
+    public ChatCaptureService(IChatGui chatGui, IPluginLog log, Func<CharacterConfig> getConfig, ChatBuffer buffer)
     {
         this.chatGui = chatGui;
         this.log = log;
-        this.config = config;
+        this.getConfig = getConfig;
         this.buffer = buffer;
 
         this.chatGui.ChatMessage += OnChatMessage;
@@ -32,10 +32,11 @@ public sealed class ChatCaptureService : IDisposable
     {
         try
         {
-            if (!config.EnabledChannels.TryGetValue(type, out var enabled) || !enabled)
+            var cfg = getConfig();
+            if (!cfg.EnabledChannels.TryGetValue(type, out var enabled) || !enabled)
                 return;
 
-            if ((type == XivChatType.TellIncoming || type == XivChatType.TellOutgoing) && !config.IncludeTells)
+            if ((type == XivChatType.TellIncoming || type == XivChatType.TellOutgoing) && !cfg.IncludeTells)
                 return;
 
             var entry = new ChatLogEntry

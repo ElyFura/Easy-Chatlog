@@ -19,8 +19,8 @@ public sealed class ChatBuffer : IDisposable
     private readonly Channel<ChatLogEntry> channel = Channel.CreateUnbounded<ChatLogEntry>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
 
-    private readonly Configuration config;
-    private readonly IDiscordSender? discord;
+    private readonly Func<CharacterConfig> getConfig;
+    private readonly Func<IDiscordSender?> getDiscord;
     private readonly IPluginLog log;
     private readonly CancellationTokenSource cts = new();
     private readonly Task pumpTask;
@@ -34,10 +34,10 @@ public sealed class ChatBuffer : IDisposable
     /// </summary>
     public HashSet<string> SelectedSenders { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    public ChatBuffer(Configuration config, IDiscordSender? discord, IPluginLog log)
+    public ChatBuffer(Func<CharacterConfig> getConfig, Func<IDiscordSender?> getDiscord, IPluginLog log)
     {
-        this.config = config;
-        this.discord = discord;
+        this.getConfig = getConfig;
+        this.getDiscord = getDiscord;
         this.log = log;
         this.pumpTask = Task.Run(PumpAsync);
     }
@@ -101,9 +101,10 @@ public sealed class ChatBuffer : IDisposable
                     }
                 }
 
-                var sizeFlush = pending.Count >= Math.Max(1, config.FlushAfterMessages);
+                var cfg = getConfig();
+                var sizeFlush = pending.Count >= Math.Max(1, cfg.FlushAfterMessages);
                 var timeFlush = pending.Count > 0
-                                && (DateTime.UtcNow - lastFlush).TotalSeconds >= Math.Max(1, config.FlushAfterSeconds);
+                                && (DateTime.UtcNow - lastFlush).TotalSeconds >= Math.Max(1, cfg.FlushAfterSeconds);
 
                 if (sizeFlush || timeFlush)
                 {
@@ -111,7 +112,8 @@ public sealed class ChatBuffer : IDisposable
                     pending.Clear();
                     lastFlush = DateTime.UtcNow;
 
-                    if (config.DiscordEnabled && discord != null)
+                    var discord = getDiscord();
+                    if (cfg.DiscordEnabled && discord != null)
                     {
                         try
                         {
@@ -144,7 +146,7 @@ public sealed class ChatBuffer : IDisposable
 
     private void AddToHistory(ChatLogEntry entry)
     {
-        var max = Math.Max(100, config.InMemoryHistorySize);
+        var max = Math.Max(100, getConfig().InMemoryHistorySize);
         lock (historyLock)
         {
             history.AddLast(entry);

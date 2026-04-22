@@ -35,7 +35,7 @@ public sealed class ExportWindow : Window, IDisposable
 
     public override void Draw()
     {
-        var cfg = plugin.Configuration;
+        var cfg = plugin.ActiveCharConfig;
         var snapshot = plugin.Buffer.SnapshotHistory();
 
         // Refresh known senders list from buffer.

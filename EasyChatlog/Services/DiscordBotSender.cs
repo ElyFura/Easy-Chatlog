@@ -11,14 +11,14 @@ namespace EasyChatlog.Services;
 
 public sealed class DiscordBotSender : IDiscordSender
 {
-    private readonly Configuration config;
+    private readonly CharacterConfig config;
     private readonly IPluginLog log;
     private readonly SemaphoreSlim startLock = new(1, 1);
 
     private DiscordSocketClient? client;
     private bool started;
 
-    public DiscordBotSender(Configuration config, IPluginLog log)
+    public DiscordBotSender(CharacterConfig config, IPluginLog log)
     {
         this.config = config;
         this.log = log;

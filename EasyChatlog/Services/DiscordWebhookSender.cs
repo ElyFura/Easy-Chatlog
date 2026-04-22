@@ -15,10 +15,10 @@ public sealed class DiscordWebhookSender : IDiscordSender
     private const int DiscordContentLimit = 1900; // a bit under 2000 for safety/codeblock fences
 
     private readonly HttpClient http = new();
-    private readonly Configuration config;
+    private readonly CharacterConfig config;
     private readonly IPluginLog log;
 
-    public DiscordWebhookSender(Configuration config, IPluginLog log)
+    public DiscordWebhookSender(CharacterConfig config, IPluginLog log)
     {
         this.config = config;
         this.log = log;

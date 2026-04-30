@@ -47,8 +47,8 @@ public sealed class ChatCaptureService : IDisposable
             {
                 Timestamp = DateTime.Now,
                 Type = type,
-                Sender = FormatSender(msg.Sender),
-                Message = msg.Message.TextValue,
+                Sender = ReplaceGamefontGlyphs(FormatSender(msg.Sender)),
+                Message = ReplaceGamefontGlyphs(FormatMessage(msg.Message)),
                 LocalPlayerName = localName,
             };
 
@@ -96,5 +96,101 @@ public sealed class ChatCaptureService : IDisposable
 
         var s = sb.ToString().Trim();
         return string.IsNullOrEmpty(s) ? sender.TextValue : s;
+    }
+
+    /// <summary>
+    /// Concatenate the text-bearing payloads of a chat message. Mirrors the
+    /// behaviour of <see cref="SeString.TextValue"/> for plain text but also
+    /// resolves auto-translate phrases and pulls printable ASCII from custom
+    /// <c>RawPayload</c> chunks (third-party chat plugins sometimes inject
+    /// tag text that way). Styling/structural payloads are dropped — their
+    /// visible glyphs are emitted as adjacent <see cref="TextPayload"/>s.
+    /// </summary>
+    private static string FormatMessage(SeString message)
+    {
+        if (message.Payloads.Count == 0)
+            return message.TextValue;
+
+        var sb = new StringBuilder();
+        foreach (var payload in message.Payloads)
+        {
+            switch (payload)
+            {
+                case TextPayload tp:
+                    if (!string.IsNullOrEmpty(tp.Text))
+                        sb.Append(tp.Text);
+                    break;
+
+                case AutoTranslatePayload at:
+                    var atText = at.Text;
+                    if (!string.IsNullOrEmpty(atText))
+                        sb.Append(atText);
+                    break;
+
+                case RawPayload raw:
+                    var rawText = ExtractPrintableAscii(raw.Data);
+                    if (!string.IsNullOrEmpty(rawText))
+                        sb.Append(rawText);
+                    break;
+            }
+        }
+
+        var s = sb.ToString();
+        return string.IsNullOrEmpty(s) ? message.TextValue : s;
+    }
+
+    private static string ExtractPrintableAscii(byte[] data)
+    {
+        if (data.Length == 0) return string.Empty;
+        var sb = new StringBuilder(data.Length);
+        foreach (var b in data)
+            if (b >= 0x20 && b <= 0x7E) sb.Append((char)b);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// FFXIV renders many in-chat tags (PF datacenter labels like "TBU"/"EU",
+    /// the "ST" ordinal badge, the cross-world icon, role symbols, …) as
+    /// glyphs from the game font's Private Use Area (U+E000–U+F8FF). They
+    /// survive <c>SeString.TextValue</c> as Unicode chars but are invisible
+    /// in Discord/exports because no other font has them. Replace known
+    /// glyphs with readable ASCII and strip the rest.
+    /// </summary>
+    internal static string ReplaceGamefontGlyphs(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return s;
+
+        var hasPua = false;
+        foreach (var c in s)
+            if (c >= 0xE000 && c <= 0xF8FF) { hasPua = true; break; }
+        if (!hasPua) return s;
+
+        var sb = new StringBuilder(s.Length);
+        foreach (var c in s)
+        {
+            if (c >= 0xE071 && c <= 0xE08A)
+            {
+                sb.Append((char)('A' + (c - 0xE071)));
+                continue;
+            }
+            if (c >= 0xE060 && c <= 0xE069)
+            {
+                sb.Append((char)('0' + (c - 0xE060)));
+                continue;
+            }
+
+            switch ((int)c)
+            {
+                case 0xE0BB: sb.Append('@'); break;     // cross-world icon
+                case 0xE040: break;                     // auto-translate open
+                case 0xE041: break;                     // auto-translate close
+                case 0xE0D1: sb.Append("[ST]"); break;  // ordinal "ST" badge
+                default:
+                    if (c < 0xE000 || c > 0xF8FF)
+                        sb.Append(c);
+                    break;
+            }
+        }
+        return sb.ToString();
     }
 }

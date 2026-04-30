@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.1.9.2</Version>
+    <Description>Export your FFXIV chatlog and forward it to Discord.</Description>
+    <PackageProjectUrl>https://github.com/elyfura/easy-chatlog</PackageProjectUrl>
+    <RepoUrl>https://github.com/elyfura/easy-chatlog</RepoUrl>
+    <IconUrl>https://raw.githubusercontent.com/ElyFura/easy-chatlog/main/images/icon.png</IconUrl>
+    <Changelog>Push for API 15</Changelog>
+    <DalamudApiLevel>15</DalamudApiLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Discord.Net.WebSocket" Version="3.17.4" />
+  </ItemGroup>
+
+    <ItemGroup>
+      <Content Include="..\images\icon.png" Link="images\icon.png">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <Visible>false</Visible>
+      </Content>
+    </ItemGroup>
+
+</Project>

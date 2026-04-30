@@ -1,0 +1,21 @@
+## .NET / Visual Studio
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.idea/
+*.DotSettings.user
+
+## Build artifacts
+*.dll
+*.pdb
+*.exe
+
+## OS / IDE
+.DS_Store
+Thumbs.db
+
+## Local secrets — never commit Discord tokens / webhook URLs
+*.local.json
+secrets.json

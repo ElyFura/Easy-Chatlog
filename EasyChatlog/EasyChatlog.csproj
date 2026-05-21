@@ -2,12 +2,12 @@
 
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.1.9.4</Version>
+    <Version>0.1.9.5</Version>
     <Description>Export your FFXIV chatlog and forward it to Discord.</Description>
     <PackageProjectUrl>https://github.com/elyfura/easy-chatlog</PackageProjectUrl>
     <RepoUrl>https://github.com/elyfura/easy-chatlog</RepoUrl>
     <IconUrl>https://raw.githubusercontent.com/ElyFura/easy-chatlog/main/images/icon.png</IconUrl>
-    <Changelog>Enhance Chat Message Output for Discord</Changelog>
+    <Changelog>Add better variable help</Changelog>
     <DalamudApiLevel>15</DalamudApiLevel>
   </PropertyGroup>
 

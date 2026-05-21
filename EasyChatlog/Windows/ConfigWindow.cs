@@ -220,6 +220,13 @@ public sealed class ConfigWindow : Window, IDisposable
 
     private void DrawThreadingSection(CharacterConfig cfg, ref bool changed)
     {
+        if (ImGui.SmallButton("? Help##threadHelp"))
+            ImGui.OpenPopup("##threadHelp");
+        ImGui.SameLine();
+        ImGui.TextDisabled("Routing keys, template placeholders, examples");
+
+        DrawThreadHelpPopup(cfg);
+
         var modeIdx = (int)cfg.Threading;
         if (ImGui.Combo("Threading mode", ref modeIdx, ThreadingLabels, ThreadingLabels.Length))
         {
@@ -293,6 +300,82 @@ public sealed class ConfigWindow : Window, IDisposable
             }
             ImGui.EndTable();
         }
+    }
+
+    private void DrawThreadHelpPopup(CharacterConfig cfg)
+    {
+        ImGui.SetNextWindowSize(new Vector2(620, 460), ImGuiCond.Appearing);
+        if (!ImGui.BeginPopupModal("##threadHelp", ImGuiWindowFlags.NoCollapse)) return;
+
+        ImGui.TextUnformatted("Thread routing keys");
+        ImGui.Separator();
+        ImGui.TextWrapped(
+            "Every chat entry is mapped to a logical \"key\" based on the threading mode. The key decides "
+          + "which Discord thread the message lands in. Webhook mode looks the key up in the Overrides table "
+          + "below; Bot mode auto-creates the thread and remembers the id.");
+        ImGui.Spacing();
+
+        ImGui.BulletText("Off:                no threading, everything goes to the parent channel.");
+        ImGui.BulletText("Per Tell partner:   one thread per Tell partner. Key: tell:<Name@World>");
+        ImGui.BulletText("Per channel type:   one thread per chat type.   Key: channel:<XivChatType>");
+        ImGui.BulletText("Per sender:         one thread per sender.      Key: sender:<Name@World>");
+
+        ImGui.Spacing();
+        ImGui.TextUnformatted("Examples");
+        ImGui.Separator();
+        ImGui.BulletText("channel:Say        — all /say messages");
+        ImGui.BulletText("channel:Party      — all party chat");
+        ImGui.BulletText("channel:Ls1        — linkshell 1");
+        ImGui.BulletText("channel:FreeCompany");
+        ImGui.BulletText("tell:Missi Ashcroft@Odin — both directions of tells with that character");
+        ImGui.BulletText("sender:Foo Bar@Phoenix");
+
+        ImGui.Spacing();
+        ImGui.TextUnformatted("Thread name template — placeholders");
+        ImGui.Separator();
+        ImGui.BulletText("{key}    — full routing key, e.g. \"Tell - Missi Ashcroft@Odin\"");
+        ImGui.BulletText("{type}   — \"Tell\" / channel type / \"Chat\"");
+        ImGui.BulletText("{sender} — partner / sender (empty for channel mode)");
+
+        ImGui.Spacing();
+        ImGui.TextUnformatted("Webhook setup");
+        ImGui.Separator();
+        ImGui.TextWrapped(
+            "Webhooks cannot create threads — create the thread in Discord first, then copy its ID via "
+          + "Right-click > Copy Thread ID (with Developer Mode on). The webhook URL itself must point to the "
+          + "PARENT text channel; the plugin appends ?thread_id=… automatically.");
+
+        ImGui.Spacing();
+        if (cfg.Threading == ThreadingMode.PerChannelType)
+        {
+            ImGui.TextUnformatted("Quick-fill key for the override form below:");
+            DrawChannelKeyPicker();
+        }
+
+        ImGui.Spacing();
+        if (ImGui.Button("Close", new Vector2(120, 0))) ImGui.CloseCurrentPopup();
+        ImGui.EndPopup();
+    }
+
+    private void DrawChannelKeyPicker()
+    {
+        if (!ImGui.BeginChild("##chanPicker", new Vector2(0, 160), true)) { ImGui.EndChild(); return; }
+        foreach (var (group, types) in ChannelFilter.Groups)
+        {
+            ImGui.TextDisabled(group);
+            foreach (var t in types)
+            {
+                var key = $"channel:{t}";
+                if (ImGui.SmallButton($"{key}##pick_{t}"))
+                {
+                    newThreadKey = key;
+                    ImGui.CloseCurrentPopup();
+                }
+                ImGui.SameLine();
+            }
+            ImGui.NewLine();
+        }
+        ImGui.EndChild();
     }
 
     private void DrawWebhookOverrides(CharacterConfig cfg, ref bool changed)

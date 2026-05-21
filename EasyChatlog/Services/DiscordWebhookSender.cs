@@ -14,6 +14,7 @@ namespace EasyChatlog.Services;
 public sealed class DiscordWebhookSender : IDiscordSender
 {
     private const int DiscordContentLimit = 1900; // a bit under 2000 for safety/codeblock fences
+    private const int DiscordUsernameLimit = 80;
 
     private readonly HttpClient http = new();
     private readonly CharacterConfig config;
@@ -26,54 +27,123 @@ public sealed class DiscordWebhookSender : IDiscordSender
     }
 
     public Task SendBatchAsync(IReadOnlyList<ChatLogEntry> entries, CancellationToken ct)
-        => SendChunksAsync(FormatBatch(entries), ct);
-
-    public Task SendRawAsync(string content, CancellationToken ct)
-        => SendChunksAsync(SplitForDiscord(content), ct);
-
-    private async Task SendChunksAsync(IEnumerable<string> chunks, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(config.WebhookUrl))
         {
             log.Warning("Discord webhook URL is empty — skipping send.");
-            return;
+            return Task.CompletedTask;
         }
 
-        foreach (var chunk in chunks)
+        return config.PerSenderIdentity
+            ? SendPerSenderAsync(entries, ct)
+            : SendLegacyAsync(entries, ct);
+    }
+
+    public Task SendRawAsync(string content, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(config.WebhookUrl))
         {
-            await PostOneAsync(chunk, ct).ConfigureAwait(false);
+            log.Warning("Discord webhook URL is empty — skipping send.");
+            return Task.CompletedTask;
+        }
+        return SendChunksAsync(SplitForDiscord(content), defaultPayload: true, username: null, avatarUrl: null, threadId: 0UL, ct);
+    }
+
+    // ---- Per-sender path -----------------------------------------------------------------
+
+    private async Task SendPerSenderAsync(IReadOnlyList<ChatLogEntry> entries, CancellationToken ct)
+    {
+        foreach (var run in GroupRuns(entries, config.Threading))
+        {
+            var sender = ResolveSenderName(run[0]);
+            var username = Truncate(string.IsNullOrEmpty(sender) ? (config.WebhookUsername ?? "FFXIV Chat") : sender, DiscordUsernameLimit);
+            var avatar = config.UseIdenticonAvatar && !string.IsNullOrEmpty(sender)
+                ? BuildIdenticonUrl(sender)
+                : null;
+            var threadId = ResolveThreadId(run[0]);
+
+            await SendChunksAsync(FormatRun(run), defaultPayload: false, username, avatar, threadId, ct).ConfigureAwait(false);
         }
     }
 
-    private async Task PostOneAsync(string content, CancellationToken ct)
+    private ulong ResolveThreadId(ChatLogEntry e)
     {
-        var payload = new
+        if (config.Threading == ThreadingMode.Off) return 0UL;
+        var key = ThreadRouter.GetKey(e, config.Threading);
+        if (key == null) return 0UL;
+        return config.WebhookThreadOverrides.TryGetValue(key, out var id) ? id : 0UL;
+    }
+
+    /// <summary>
+    /// Yields runs of consecutive entries that share (sender, type). Each run is a single
+    /// webhook POST. When threading is on, runs are also broken on thread-key changes so
+    /// every POST has a single thread destination.
+    /// </summary>
+    internal static IEnumerable<List<ChatLogEntry>> GroupRuns(IReadOnlyList<ChatLogEntry> entries, ThreadingMode mode)
+    {
+        var run = new List<ChatLogEntry>();
+        string? lastSender = null;
+        XivChatType? lastType = null;
+        string? lastKey = null;
+
+        foreach (var e in entries)
         {
-            username = string.IsNullOrWhiteSpace(config.WebhookUsername) ? "FFXIV Chat" : config.WebhookUsername,
-            content,
-            allowed_mentions = new { parse = Array.Empty<string>() },
-        };
+            var sender = ResolveSenderName(e);
+            var key = ThreadRouter.GetKey(e, mode);
 
-        for (var attempt = 0; attempt < 3; attempt++)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            using var resp = await http.PostAsJsonAsync(config.WebhookUrl, payload, ct).ConfigureAwait(false);
-            if (resp.IsSuccessStatusCode) return;
-
-            if ((int)resp.StatusCode == 429)
+            if (run.Count > 0 && (sender != lastSender || e.Type != lastType || key != lastKey))
             {
-                var retryAfter = resp.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(2);
-                log.Warning("Discord webhook 429 — retrying after {Delay}", retryAfter);
-                await Task.Delay(retryAfter, ct).ConfigureAwait(false);
-                continue;
+                yield return run;
+                run = new List<ChatLogEntry>();
             }
 
-            var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            log.Error("Discord webhook failed: {Status} {Body}", resp.StatusCode, body);
-            return;
+            run.Add(e);
+            lastSender = sender;
+            lastType = e.Type;
+            lastKey = key;
         }
+        if (run.Count > 0) yield return run;
     }
+
+    private static IEnumerable<string> FormatRun(IReadOnlyList<ChatLogEntry> run)
+    {
+        var sb = new StringBuilder();
+        foreach (var e in run)
+        {
+            var line = FormatLineNoSender(e);
+            if (sb.Length + line.Length + 1 > DiscordContentLimit)
+            {
+                yield return sb.ToString();
+                sb.Clear();
+            }
+            sb.AppendLine(line);
+        }
+        if (sb.Length > 0) yield return sb.ToString();
+    }
+
+    internal static string FormatLineNoSender(ChatLogEntry e)
+    {
+        var ts = e.Timestamp.ToString("HH:mm:ss");
+        return e.Type switch
+        {
+            XivChatType.TellOutgoing => $"`[{ts}]` >> {Escape(e.Message)}",
+            XivChatType.TellIncoming => $"`[{ts}]` {Escape(e.Message)}",
+            _                        => $"`[{ts}] [{e.TypeLabel}]` {Escape(e.Message)}",
+        };
+    }
+
+    private static string ResolveSenderName(ChatLogEntry e) =>
+        e.Type == XivChatType.TellOutgoing && !string.IsNullOrEmpty(e.LocalPlayerName)
+            ? e.LocalPlayerName
+            : e.Sender ?? "";
+
+    private static string BuildIdenticonUrl(string seed) =>
+        $"https://api.dicebear.com/7.x/identicon/png?seed={Uri.EscapeDataString(seed)}";
+
+    // ---- Legacy path (PerSenderIdentity off) ---------------------------------------------
+
+    private Task SendLegacyAsync(IReadOnlyList<ChatLogEntry> entries, CancellationToken ct)
+        => SendChunksAsync(FormatBatch(entries), defaultPayload: true, username: null, avatarUrl: null, threadId: 0UL, ct);
 
     internal static IEnumerable<string> FormatBatch(IReadOnlyList<ChatLogEntry> entries)
     {
@@ -114,9 +184,82 @@ public sealed class DiscordWebhookSender : IDiscordSender
         }
     }
 
+    // ---- HTTP ----------------------------------------------------------------------------
+
+    private async Task SendChunksAsync(IEnumerable<string> chunks, bool defaultPayload, string? username, string? avatarUrl, ulong threadId, CancellationToken ct)
+    {
+        foreach (var chunk in chunks)
+        {
+            await PostOneAsync(chunk, defaultPayload, username, avatarUrl, threadId, ct).ConfigureAwait(false);
+        }
+    }
+
+    private async Task PostOneAsync(string content, bool defaultPayload, string? username, string? avatarUrl, ulong threadId, CancellationToken ct)
+    {
+        object payload;
+        if (defaultPayload)
+        {
+            payload = new
+            {
+                username = string.IsNullOrWhiteSpace(config.WebhookUsername) ? "FFXIV Chat" : config.WebhookUsername,
+                content,
+                allowed_mentions = new { parse = Array.Empty<string>() },
+            };
+        }
+        else if (avatarUrl != null)
+        {
+            payload = new
+            {
+                username,
+                avatar_url = avatarUrl,
+                content,
+                allowed_mentions = new { parse = Array.Empty<string>() },
+            };
+        }
+        else
+        {
+            payload = new
+            {
+                username,
+                content,
+                allowed_mentions = new { parse = Array.Empty<string>() },
+            };
+        }
+
+        var url = threadId == 0UL
+            ? config.WebhookUrl
+            : AppendQuery(config.WebhookUrl, $"thread_id={threadId}");
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            using var resp = await http.PostAsJsonAsync(url, payload, ct).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode) return;
+
+            if ((int)resp.StatusCode == 429)
+            {
+                var retryAfter = resp.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(2);
+                log.Warning("Discord webhook 429 — retrying after {Delay}", retryAfter);
+                await Task.Delay(retryAfter, ct).ConfigureAwait(false);
+                continue;
+            }
+
+            var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            log.Error("Discord webhook failed: {Status} {Body}", resp.StatusCode, body);
+            return;
+        }
+    }
+
+    private static string AppendQuery(string url, string query)
+        => url.Contains('?') ? $"{url}&{query}" : $"{url}?{query}";
+
     private static string Escape(string s)
         // Mute @everyone/@here and other mention shapes.
-        => s.Replace("@everyone", "@\u200beveryone").Replace("@here", "@\u200bhere");
+        => (s ?? "").Replace("@everyone", "@​everyone").Replace("@here", "@​here");
+
+    private static string Truncate(string s, int max)
+        => string.IsNullOrEmpty(s) || s.Length <= max ? s : s[..max];
 
     private static IEnumerable<string> SplitForDiscord(string content)
     {

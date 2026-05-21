@@ -123,7 +123,7 @@ public sealed class Plugin : IDalamudPlugin
         return cfg.Mode switch
         {
             DiscordMode.Webhook => new DiscordWebhookSender(cfg, Log),
-            DiscordMode.Bot     => new DiscordBotSender(cfg, Log),
+            DiscordMode.Bot     => new DiscordBotSender(cfg, Log, SaveConfiguration),
             _ => null,
         };
     }

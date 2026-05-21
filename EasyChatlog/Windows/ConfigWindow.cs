@@ -111,6 +111,30 @@ public sealed class ConfigWindow : Window, IDisposable
             }
         }
 
+        if (ImGui.CollapsingHeader("Rendering", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            var perSender = cfg.PerSenderIdentity;
+            if (ImGui.Checkbox("Show each FFXIV speaker as its own Discord identity", ref perSender))
+            {
+                cfg.PerSenderIdentity = perSender;
+                changed = true;
+            }
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Webhook: each message uses the speaker's name/avatar — Discord auto-groups runs.\nBot: one embed per speaker run with a unique color stripe.");
+
+            ImGui.BeginDisabled(!cfg.PerSenderIdentity);
+            var ident = cfg.UseIdenticonAvatar;
+            if (ImGui.Checkbox("Use identicon avatars (dicebear.com)", ref ident))
+            {
+                cfg.UseIdenticonAvatar = ident;
+                changed = true;
+            }
+            ImGui.EndDisabled();
+        }
+
+        if (ImGui.CollapsingHeader("Threads"))
+            DrawThreadingSection(cfg, ref changed);
+
         if (ImGui.CollapsingHeader("Buffer / Flush", ImGuiTreeNodeFlags.DefaultOpen))
         {
             var n = cfg.FlushAfterMessages;
@@ -180,6 +204,136 @@ public sealed class ConfigWindow : Window, IDisposable
         DrawNewPopup();
         DrawRenamePopup();
         DrawDeletePopup();
+    }
+
+    // --- Threading -----------------------------------------------------------------------
+
+    private static readonly string[] ThreadingLabels =
+        { "Off", "Per Tell partner", "Per channel type", "Per sender" };
+    private static readonly string[] ArchiveLabels =
+        { "1 hour", "1 day", "3 days", "1 week" };
+    private static readonly ThreadAutoArchive[] ArchiveValues =
+        { ThreadAutoArchive.OneHour, ThreadAutoArchive.OneDay, ThreadAutoArchive.ThreeDays, ThreadAutoArchive.OneWeek };
+
+    private string newThreadKey = "";
+    private string newThreadId  = "";
+
+    private void DrawThreadingSection(CharacterConfig cfg, ref bool changed)
+    {
+        var modeIdx = (int)cfg.Threading;
+        if (ImGui.Combo("Threading mode", ref modeIdx, ThreadingLabels, ThreadingLabels.Length))
+        {
+            cfg.Threading = (ThreadingMode)modeIdx;
+            changed = true;
+        }
+
+        var archiveIdx = Array.IndexOf(ArchiveValues, cfg.ThreadArchive);
+        if (archiveIdx < 0) archiveIdx = 1;
+        if (ImGui.Combo("Auto-archive", ref archiveIdx, ArchiveLabels, ArchiveLabels.Length))
+        {
+            cfg.ThreadArchive = ArchiveValues[archiveIdx];
+            changed = true;
+        }
+
+        var tmpl = cfg.ThreadNameTemplate;
+        if (ImGui.InputText("Thread name template", ref tmpl, 80))
+        {
+            cfg.ThreadNameTemplate = tmpl;
+            changed = true;
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Placeholders: {key}, {type}, {sender}");
+
+        ImGui.Spacing();
+
+        if (cfg.Mode == DiscordMode.Bot)
+        {
+            ImGui.TextDisabled("Bot will auto-create threads in the configured channel.");
+            ImGui.TextDisabled("Required permissions: Create Public Threads, Send Messages in Threads.");
+            ImGui.Spacing();
+            DrawKnownThreads(cfg, ref changed);
+        }
+        else
+        {
+            ImGui.TextDisabled("Webhooks cannot create threads. Enter a pre-existing Thread ID per routing key,");
+            ImGui.TextDisabled("or switch to Bot mode for automatic thread creation.");
+            ImGui.Spacing();
+            DrawWebhookOverrides(cfg, ref changed);
+        }
+    }
+
+    private void DrawKnownThreads(CharacterConfig cfg, ref bool changed)
+    {
+        if (cfg.ThreadMap.Count == 0)
+        {
+            ImGui.TextDisabled("No threads created yet.");
+            return;
+        }
+
+        if (ImGui.BeginTable("##knownThreads", 3, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Borders))
+        {
+            ImGui.TableSetupColumn("Key");
+            ImGui.TableSetupColumn("Thread ID");
+            ImGui.TableSetupColumn("");
+            ImGui.TableHeadersRow();
+
+            foreach (var (key, id) in cfg.ThreadMap.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase).ToList())
+            {
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(key);
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(id.ToString());
+                ImGui.TableNextColumn();
+                if (ImGui.SmallButton($"Forget##fk_{key}"))
+                {
+                    cfg.ThreadMap.Remove(key);
+                    changed = true;
+                }
+            }
+            ImGui.EndTable();
+        }
+    }
+
+    private void DrawWebhookOverrides(CharacterConfig cfg, ref bool changed)
+    {
+        if (ImGui.BeginTable("##overrides", 3, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Borders))
+        {
+            ImGui.TableSetupColumn("Key");
+            ImGui.TableSetupColumn("Thread ID");
+            ImGui.TableSetupColumn("");
+            ImGui.TableHeadersRow();
+
+            foreach (var (key, id) in cfg.WebhookThreadOverrides.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase).ToList())
+            {
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(key);
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(id.ToString());
+                ImGui.TableNextColumn();
+                if (ImGui.SmallButton($"Remove##rm_{key}"))
+                {
+                    cfg.WebhookThreadOverrides.Remove(key);
+                    changed = true;
+                }
+            }
+            ImGui.EndTable();
+        }
+
+        ImGui.SetNextItemWidth(180);
+        ImGui.InputTextWithHint("##nkey", "key (e.g. tell:Foo@Bar)", ref newThreadKey, 120);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(180);
+        ImGui.InputTextWithHint("##nid", "thread id", ref newThreadId, 32, ImGuiInputTextFlags.CharsDecimal);
+        ImGui.SameLine();
+        if (ImGui.Button("Add") && !string.IsNullOrWhiteSpace(newThreadKey) && ulong.TryParse(newThreadId, out var tid) && tid != 0)
+        {
+            cfg.WebhookThreadOverrides[newThreadKey.Trim()] = tid;
+            newThreadKey = "";
+            newThreadId = "";
+            changed = true;
+        }
     }
 
     // --- Profile bar ---------------------------------------------------------------------

@@ -21,6 +21,22 @@ public enum ExportFormat
     Markdown = 3,
 }
 
+public enum ThreadingMode
+{
+    Off = 0,
+    PerTellPartner = 1,
+    PerChannelType = 2,
+    PerSender      = 3,
+}
+
+public enum ThreadAutoArchive
+{
+    OneHour   = 60,
+    OneDay    = 1440,
+    ThreeDays = 4320,
+    OneWeek   = 10080,
+}
+
 /// <summary>
 /// The actual settings payload. Lives inside a <see cref="ConfigProfile"/>.
 /// </summary>
@@ -49,21 +65,44 @@ public sealed class CharacterConfig
     public bool IncludeTells { get; set; } = false;
     public Dictionary<XivChatType, bool> EnabledChannels { get; set; } = ChannelFilter.DefaultMap();
 
+    // Rendering — each FFXIV sender appears as its own Discord identity so
+    // consecutive messages from the same speaker collapse like a normal chat.
+    public bool PerSenderIdentity { get; set; } = true;
+    public bool UseIdenticonAvatar { get; set; } = true;
+
+    // Threading — route conversations into dedicated Discord threads.
+    public ThreadingMode Threading { get; set; } = ThreadingMode.Off;
+    public ThreadAutoArchive ThreadArchive { get; set; } = ThreadAutoArchive.OneDay;
+    public string ThreadNameTemplate { get; set; } = "{key}";
+
+    /// <summary>Bot-mode cache: logical key (e.g. "tell:Foo@Bar") → Discord thread id.</summary>
+    public Dictionary<string, ulong> ThreadMap { get; set; } = new();
+
+    /// <summary>Webhook-mode overrides: logical key → manually-configured Discord thread id.</summary>
+    public Dictionary<string, ulong> WebhookThreadOverrides { get; set; } = new();
+
     public CharacterConfig Clone() => new()
     {
-        DiscordEnabled       = DiscordEnabled,
-        Mode                 = Mode,
-        WebhookUrl           = WebhookUrl,
-        WebhookUsername      = WebhookUsername,
-        BotToken             = BotToken,
-        BotChannelId         = BotChannelId,
-        FlushAfterMessages   = FlushAfterMessages,
-        FlushAfterSeconds    = FlushAfterSeconds,
-        InMemoryHistorySize  = InMemoryHistorySize,
-        ExportDirectory      = ExportDirectory,
-        DefaultExportFormat  = DefaultExportFormat,
-        IncludeTells         = IncludeTells,
-        EnabledChannels      = new Dictionary<XivChatType, bool>(EnabledChannels),
+        DiscordEnabled         = DiscordEnabled,
+        Mode                   = Mode,
+        WebhookUrl             = WebhookUrl,
+        WebhookUsername        = WebhookUsername,
+        BotToken               = BotToken,
+        BotChannelId           = BotChannelId,
+        FlushAfterMessages     = FlushAfterMessages,
+        FlushAfterSeconds      = FlushAfterSeconds,
+        InMemoryHistorySize    = InMemoryHistorySize,
+        ExportDirectory        = ExportDirectory,
+        DefaultExportFormat    = DefaultExportFormat,
+        IncludeTells           = IncludeTells,
+        EnabledChannels        = new Dictionary<XivChatType, bool>(EnabledChannels),
+        PerSenderIdentity      = PerSenderIdentity,
+        UseIdenticonAvatar     = UseIdenticonAvatar,
+        Threading              = Threading,
+        ThreadArchive          = ThreadArchive,
+        ThreadNameTemplate     = ThreadNameTemplate,
+        ThreadMap              = new Dictionary<string, ulong>(ThreadMap),
+        WebhookThreadOverrides = new Dictionary<string, ulong>(WebhookThreadOverrides),
     };
 }
 

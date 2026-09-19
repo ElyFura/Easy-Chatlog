@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Dalamud.Configuration;
 using Dalamud.Game.Text;
+using EasyChatlog.Localization;
 using EasyChatlog.Services;
 
 namespace EasyChatlog;
@@ -120,6 +121,12 @@ public sealed class Configuration : IPluginConfiguration
 {
     public int Version { get; set; } = 1;
 
+    /// <summary>
+    /// UI language. Global rather than per-profile — it is a preference of the person
+    /// at the keyboard, not of the character.
+    /// </summary>
+    public Language Language { get; set; } = Language.Auto;
+
     /// <summary>All named config profiles, keyed by <see cref="ConfigProfile.Id"/>.</summary>
     public Dictionary<Guid, ConfigProfile> Profiles { get; set; } = new();
 
@@ -233,7 +240,7 @@ public sealed class Configuration : IPluginConfiguration
     {
         var profile = new ConfigProfile
         {
-            Name   = string.IsNullOrWhiteSpace(name) ? "New profile" : name,
+            Name   = string.IsNullOrWhiteSpace(name) ? Loc.S.NewProfileName : name,
             Config = seed?.Clone() ?? new CharacterConfig(),
         };
         Profiles[profile.Id] = profile;

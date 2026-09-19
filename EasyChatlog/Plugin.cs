@@ -7,6 +7,7 @@ using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using EasyChatlog.Localization;
 using EasyChatlog.Models;
 using EasyChatlog.Services;
 using EasyChatlog.Windows;
@@ -51,6 +52,8 @@ public sealed class Plugin : IDalamudPlugin
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         Configuration.Migrate();
 
+        Loc.Apply(Configuration.Language, PluginInterface.UiLanguage);
+
         DefaultExportDirectory = Path.Combine(
             PluginInterface.GetPluginConfigDirectory(), "exports");
 
@@ -67,18 +70,14 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi   += ToggleMainUi;
 
-        CommandManager.AddHandler(MainCommand, new CommandInfo(OnCommand)
-        {
-            HelpMessage = "Open Easy Chatlog. Subcommands: config | export <txt|json|html|md> | discord on|off",
-        });
-        CommandManager.AddHandler(ShortCommand, new CommandInfo(OnCommand)
-        {
-            HelpMessage = "Alias for /easychatlog",
-            ShowInHelp = false,
-        });
+        RegisterCommands();
 
         ClientState.Login  += OnLogin;
         ClientState.Logout += OnLogout;
+
+        // Keep the localized command help in sync when the language changes.
+        Loc.Changed += OnLanguageChanged;
+        PluginInterface.LanguageChanged += OnDalamudLanguageChanged;
 
         // If a character is already logged in when the plugin loads, persist any newly created config.
         if (PlayerState.ContentId != 0)
@@ -89,6 +88,9 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        PluginInterface.LanguageChanged -= OnDalamudLanguageChanged;
+        Loc.Changed -= OnLanguageChanged;
+
         ClientState.Login  -= OnLogin;
         ClientState.Logout -= OnLogout;
 
@@ -109,6 +111,37 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     public void SaveConfiguration() => PluginInterface.SavePluginConfig(Configuration);
+
+    private void RegisterCommands()
+    {
+        CommandManager.AddHandler(MainCommand, new CommandInfo(OnCommand)
+        {
+            HelpMessage = Loc.S.CommandHelp,
+        });
+        CommandManager.AddHandler(ShortCommand, new CommandInfo(OnCommand)
+        {
+            HelpMessage = Loc.S.CommandHelpAlias,
+            ShowInHelp = false,
+        });
+    }
+
+    /// <summary>Command help text is captured at registration time, so re-register it on a language switch.</summary>
+    private void OnLanguageChanged()
+    {
+        CommandManager.RemoveHandler(MainCommand);
+        CommandManager.RemoveHandler(ShortCommand);
+        RegisterCommands();
+    }
+
+    private void OnDalamudLanguageChanged(string langCode) => Loc.OnDalamudLanguageChanged(langCode);
+
+    /// <summary>Switch the UI language and persist the choice.</summary>
+    public void SetLanguage(Language language)
+    {
+        Configuration.Language = language;
+        Loc.Apply(language, PluginInterface.UiLanguage);
+        SaveConfiguration();
+    }
 
     public void RebuildDiscordSender()
     {
@@ -152,22 +185,23 @@ public sealed class Plugin : IDalamudPlugin
         var sender = DiscordSender;
         if (sender == null)
         {
-            Notify("Discord sender not configured.");
+            Notify(Loc.S.SenderNotConfigured);
             return Task.CompletedTask;
         }
         var who = PlayerState.CharacterName ?? "FFXIV";
+        var body = string.Format(Loc.S.DiscordTestBodyFmt, who, DateTime.Now.ToString("HH:mm:ss"));
 
         return Task.Run(async () =>
         {
             try
             {
-                await sender.SendRawAsync($"Easy Chatlog test from {who} ({DateTime.Now:HH:mm:ss})", CancellationToken.None);
-                Notify("Discord test sent.");
+                await sender.SendRawAsync(body, CancellationToken.None);
+                Notify(Loc.S.DiscordTestSent);
             }
             catch (Exception ex)
             {
                 Log.Error(ex, "Discord test failed");
-                Notify($"Discord test failed: {ex.Message}");
+                Notify(string.Format(Loc.S.DiscordTestFailedFmt, ex.Message));
             }
         });
     }
@@ -209,11 +243,12 @@ public sealed class Plugin : IDalamudPlugin
             case "discord":
                 ActiveCharConfig.DiscordEnabled = rest.Equals("on", StringComparison.OrdinalIgnoreCase);
                 SaveConfiguration();
-                Notify($"Discord live-forward {(ActiveCharConfig.DiscordEnabled ? "ENABLED" : "DISABLED")}.");
+                Notify(string.Format(Loc.S.LiveForwardOnOffFmt,
+                    ActiveCharConfig.DiscordEnabled ? Loc.S.Enabled : Loc.S.Disabled));
                 break;
 
             default:
-                Notify($"Unknown subcommand: {sub}");
+                Notify(string.Format(Loc.S.UnknownSubcommandFmt, sub));
                 break;
         }
     }
@@ -232,18 +267,18 @@ public sealed class Plugin : IDalamudPlugin
         var entries = Buffer.SnapshotHistory();
         if (entries.Count == 0)
         {
-            Notify("Nothing to export.");
+            Notify(Loc.S.NothingToExport);
             return;
         }
         try
         {
             var path = await ChatExporter.ExportAsync(entries, EffectiveExportDirectory, fmt);
-            Notify($"Exported {entries.Count} entries -> {path}");
+            Notify(string.Format(Loc.S.ExportedFmt, entries.Count, path));
         }
         catch (Exception ex)
         {
             Log.Error(ex, "Quick export failed");
-            Notify($"Export failed: {ex.Message}");
+            Notify(string.Format(Loc.S.ExportFailedFmt, ex.Message));
         }
     }
 }

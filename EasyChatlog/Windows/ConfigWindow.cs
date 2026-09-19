@@ -6,6 +6,7 @@ using System.Threading;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Game.Text;
 using Dalamud.Interface.Windowing;
+using EasyChatlog.Localization;
 using EasyChatlog.Services;
 
 namespace EasyChatlog.Windows;
@@ -23,7 +24,7 @@ public sealed class ConfigWindow : Window, IDisposable
     private Guid pendingDeleteId = Guid.Empty;
 
     public ConfigWindow(Plugin plugin)
-        : base("Easy Chatlog — Settings###EasyChatlogConfig",
+        : base(Loc.S.ConfigTitle + "###EasyChatlogConfig",
                ImGuiWindowFlags.AlwaysAutoResize)
     {
         this.plugin = plugin;
@@ -39,9 +40,9 @@ public sealed class ConfigWindow : Window, IDisposable
     public override void Draw()
     {
         var charName = Plugin.PlayerState.CharacterName;
-        WindowName = !string.IsNullOrEmpty(charName)
-            ? $"Easy Chatlog — Settings ({charName})###EasyChatlogConfig"
-            : "Easy Chatlog — Settings###EasyChatlogConfig";
+        WindowName = (!string.IsNullOrEmpty(charName)
+            ? string.Format(Loc.S.ConfigTitleFmt, charName)
+            : Loc.S.ConfigTitle) + "###EasyChatlogConfig";
 
         var config = plugin.Configuration;
 
@@ -53,36 +54,39 @@ public sealed class ConfigWindow : Window, IDisposable
         var cfg = profile.Config;
         var changed = false;
 
+        DrawLanguageSelector();
+        ImGui.Separator();
+
         DrawProfileBar(ref changed);
         ImGui.Separator();
 
-        if (ImGui.CollapsingHeader("Discord", ImGuiTreeNodeFlags.DefaultOpen))
+        if (ImGui.CollapsingHeader(Loc.S.HeaderDiscord + "###ecDiscord", ImGuiTreeNodeFlags.DefaultOpen))
         {
             var enabled = cfg.DiscordEnabled;
-            if (ImGui.Checkbox("Forward chat to Discord", ref enabled))
+            if (ImGui.Checkbox(Loc.S.ForwardToDiscord, ref enabled))
             {
                 cfg.DiscordEnabled = enabled;
                 changed = true;
             }
 
             var modeIdx = (int)cfg.Mode;
-            if (ImGui.RadioButton("Webhook", ref modeIdx, (int)DiscordMode.Webhook)) { cfg.Mode = DiscordMode.Webhook; changed = true; plugin.RebuildDiscordSender(); }
+            if (ImGui.RadioButton(Loc.S.ModeWebhook, ref modeIdx, (int)DiscordMode.Webhook)) { cfg.Mode = DiscordMode.Webhook; changed = true; plugin.RebuildDiscordSender(); }
             ImGui.SameLine();
-            if (ImGui.RadioButton("Bot",     ref modeIdx, (int)DiscordMode.Bot))     { cfg.Mode = DiscordMode.Bot;     changed = true; plugin.RebuildDiscordSender(); }
+            if (ImGui.RadioButton(Loc.S.ModeBot,     ref modeIdx, (int)DiscordMode.Bot))     { cfg.Mode = DiscordMode.Bot;     changed = true; plugin.RebuildDiscordSender(); }
 
             ImGui.Spacing();
 
             if (cfg.Mode == DiscordMode.Webhook)
             {
                 var url = cfg.WebhookUrl;
-                if (ImGui.InputText("Webhook URL", ref url, 512))
+                if (ImGui.InputText(Loc.S.WebhookUrl, ref url, 512))
                 {
                     cfg.WebhookUrl = url;
                     changed = true;
                 }
 
                 var name = cfg.WebhookUsername;
-                if (ImGui.InputText("Display name", ref name, 80))
+                if (ImGui.InputText(Loc.S.DisplayName, ref name, 80))
                 {
                     cfg.WebhookUsername = name;
                     changed = true;
@@ -91,40 +95,40 @@ public sealed class ConfigWindow : Window, IDisposable
             else
             {
                 var token = cfg.BotToken;
-                if (ImGui.InputText("Bot Token", ref token, 200, ImGuiInputTextFlags.Password))
+                if (ImGui.InputText(Loc.S.BotToken, ref token, 200, ImGuiInputTextFlags.Password))
                 {
                     cfg.BotToken = token;
                     changed = true;
                 }
 
                 var chId = cfg.BotChannelId.ToString();
-                if (ImGui.InputText("Channel ID", ref chId, 32, ImGuiInputTextFlags.CharsDecimal))
+                if (ImGui.InputText(Loc.S.ChannelId, ref chId, 32, ImGuiInputTextFlags.CharsDecimal))
                 {
                     cfg.BotChannelId = ulong.TryParse(chId, out var v) ? v : 0UL;
                     changed = true;
                 }
             }
 
-            if (ImGui.Button("Test send"))
+            if (ImGui.Button(Loc.S.TestSend))
             {
                 _ = plugin.SendDiscordTestAsync();
             }
         }
 
-        if (ImGui.CollapsingHeader("Rendering", ImGuiTreeNodeFlags.DefaultOpen))
+        if (ImGui.CollapsingHeader(Loc.S.HeaderRendering + "###ecRendering", ImGuiTreeNodeFlags.DefaultOpen))
         {
             var perSender = cfg.PerSenderIdentity;
-            if (ImGui.Checkbox("Show each FFXIV speaker as its own Discord identity", ref perSender))
+            if (ImGui.Checkbox(Loc.S.PerSenderIdentity, ref perSender))
             {
                 cfg.PerSenderIdentity = perSender;
                 changed = true;
             }
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Webhook: each message uses the speaker's name/avatar — Discord auto-groups runs.\nBot: one embed per speaker run with a unique color stripe.");
+                ImGui.SetTooltip(Loc.S.PerSenderTooltip);
 
             ImGui.BeginDisabled(!cfg.PerSenderIdentity);
             var ident = cfg.UseIdenticonAvatar;
-            if (ImGui.Checkbox("Use identicon avatars (dicebear.com)", ref ident))
+            if (ImGui.Checkbox(Loc.S.UseIdenticon, ref ident))
             {
                 cfg.UseIdenticonAvatar = ident;
                 changed = true;
@@ -132,25 +136,25 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.EndDisabled();
         }
 
-        if (ImGui.CollapsingHeader("Threads"))
+        if (ImGui.CollapsingHeader(Loc.S.HeaderThreads + "###ecThreads"))
             DrawThreadingSection(cfg, ref changed);
 
-        if (ImGui.CollapsingHeader("Buffer / Flush", ImGuiTreeNodeFlags.DefaultOpen))
+        if (ImGui.CollapsingHeader(Loc.S.HeaderBuffer + "###ecBuffer", ImGuiTreeNodeFlags.DefaultOpen))
         {
             var n = cfg.FlushAfterMessages;
-            if (ImGui.SliderInt("Flush after N messages", ref n, 1, 100)) { cfg.FlushAfterMessages = n; changed = true; }
+            if (ImGui.SliderInt(Loc.S.FlushAfterMessages, ref n, 1, 100)) { cfg.FlushAfterMessages = n; changed = true; }
 
             var s = cfg.FlushAfterSeconds;
-            if (ImGui.SliderInt("Flush after N seconds", ref s, 1, 60)) { cfg.FlushAfterSeconds = s; changed = true; }
+            if (ImGui.SliderInt(Loc.S.FlushAfterSeconds, ref s, 1, 60)) { cfg.FlushAfterSeconds = s; changed = true; }
 
             var hist = cfg.InMemoryHistorySize;
-            if (ImGui.SliderInt("In-memory history (entries)", ref hist, 100, 50_000)) { cfg.InMemoryHistorySize = hist; changed = true; }
+            if (ImGui.SliderInt(Loc.S.InMemoryHistory, ref hist, 100, 50_000)) { cfg.InMemoryHistorySize = hist; changed = true; }
         }
 
-        if (ImGui.CollapsingHeader("Channels"))
+        if (ImGui.CollapsingHeader(Loc.S.HeaderChannels + "###ecChannels"))
         {
             var tells = cfg.IncludeTells;
-            if (ImGui.Checkbox("Include Tells (privacy-sensitive!)", ref tells))
+            if (ImGui.Checkbox(Loc.S.IncludeTells, ref tells))
             {
                 cfg.IncludeTells = tells;
                 changed = true;
@@ -160,7 +164,7 @@ public sealed class ConfigWindow : Window, IDisposable
 
             foreach (var (group, types) in ChannelFilter.Groups)
             {
-                ImGui.TextDisabled(group);
+                ImGui.TextDisabled(Loc.S.ChannelGroup(group));
                 ImGui.Indent();
                 var i = 0;
                 foreach (var t in types)
@@ -178,25 +182,25 @@ public sealed class ConfigWindow : Window, IDisposable
             }
         }
 
-        if (ImGui.CollapsingHeader("Export"))
+        if (ImGui.CollapsingHeader(Loc.S.HeaderExport + "###ecExport"))
         {
             var dir = string.IsNullOrEmpty(cfg.ExportDirectory) ? plugin.DefaultExportDirectory : cfg.ExportDirectory;
-            if (ImGui.InputText("Export directory", ref dir, 260))
+            if (ImGui.InputText(Loc.S.ExportDirectory, ref dir, 260))
             {
                 cfg.ExportDirectory = dir;
                 changed = true;
             }
 
             var fmtIdx = (int)cfg.DefaultExportFormat;
-            string[] fmts = { "Plain Text (.txt)", "JSON (.json)", "HTML (.html)", "Markdown (.md)" };
-            if (ImGui.Combo("Default format", ref fmtIdx, fmts, fmts.Length))
+            string[] fmts = { Loc.S.FormatTxt, Loc.S.FormatJson, Loc.S.FormatHtml, Loc.S.FormatMarkdown };
+            if (ImGui.Combo(Loc.S.DefaultFormat, ref fmtIdx, fmts, fmts.Length))
             {
                 cfg.DefaultExportFormat = (ExportFormat)fmtIdx;
                 changed = true;
             }
         }
 
-        if (ImGui.CollapsingHeader("Character assignments"))
+        if (ImGui.CollapsingHeader(Loc.S.HeaderAssignments + "###ecAssign"))
             DrawCharacterAssignments(ref changed);
 
         if (changed) plugin.SaveConfiguration();
@@ -206,12 +210,35 @@ public sealed class ConfigWindow : Window, IDisposable
         DrawDeletePopup();
     }
 
+    // --- Language ------------------------------------------------------------------------
+
+    private static readonly Language[] LanguageValues =
+        [Language.Auto, Language.English, Language.German];
+
+    /// <summary>
+    /// Label is bilingual so the setting stays findable no matter which language is active.
+    /// </summary>
+    private void DrawLanguageSelector()
+    {
+        string[] labels = [Loc.S.LanguageAuto, Loc.S.LanguageEnglish, Loc.S.LanguageGerman];
+
+        var idx = Array.IndexOf(LanguageValues, plugin.Configuration.Language);
+        if (idx < 0) idx = 0;
+
+        ImGui.Text(Loc.S.LanguageLabel);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(220);
+        if (ImGui.Combo("##ecLanguage", ref idx, labels, labels.Length))
+            plugin.SetLanguage(LanguageValues[idx]);
+    }
+
     // --- Threading -----------------------------------------------------------------------
 
-    private static readonly string[] ThreadingLabels =
-        { "Off", "Per Tell partner", "Per channel type", "Per sender" };
-    private static readonly string[] ArchiveLabels =
-        { "1 hour", "1 day", "3 days", "1 week" };
+    // Rebuilt per frame so a language switch takes effect immediately.
+    private static string[] ThreadingLabels =>
+        [Loc.S.ThreadingOff, Loc.S.ThreadingPerTell, Loc.S.ThreadingPerChannel, Loc.S.ThreadingPerSender];
+    private static string[] ArchiveLabels =>
+        [Loc.S.ArchiveOneHour, Loc.S.ArchiveOneDay, Loc.S.ArchiveThreeDays, Loc.S.ArchiveOneWeek];
     private static readonly ThreadAutoArchive[] ArchiveValues =
         { ThreadAutoArchive.OneHour, ThreadAutoArchive.OneDay, ThreadAutoArchive.ThreeDays, ThreadAutoArchive.OneWeek };
 
@@ -220,50 +247,52 @@ public sealed class ConfigWindow : Window, IDisposable
 
     private void DrawThreadingSection(CharacterConfig cfg, ref bool changed)
     {
-        if (ImGui.SmallButton("? Help##threadHelp"))
+        if (ImGui.SmallButton(Loc.S.HelpButton + "##threadHelp"))
             ImGui.OpenPopup("##threadHelp");
         ImGui.SameLine();
-        ImGui.TextDisabled("Routing keys, template placeholders, examples");
+        ImGui.TextDisabled(Loc.S.ThreadHelpHint);
 
         DrawThreadHelpPopup(cfg);
 
+        var threadingLabels = ThreadingLabels;
         var modeIdx = (int)cfg.Threading;
-        if (ImGui.Combo("Threading mode", ref modeIdx, ThreadingLabels, ThreadingLabels.Length))
+        if (ImGui.Combo(Loc.S.ThreadingMode, ref modeIdx, threadingLabels, threadingLabels.Length))
         {
             cfg.Threading = (ThreadingMode)modeIdx;
             changed = true;
         }
 
+        var archiveLabels = ArchiveLabels;
         var archiveIdx = Array.IndexOf(ArchiveValues, cfg.ThreadArchive);
         if (archiveIdx < 0) archiveIdx = 1;
-        if (ImGui.Combo("Auto-archive", ref archiveIdx, ArchiveLabels, ArchiveLabels.Length))
+        if (ImGui.Combo(Loc.S.AutoArchive, ref archiveIdx, archiveLabels, archiveLabels.Length))
         {
             cfg.ThreadArchive = ArchiveValues[archiveIdx];
             changed = true;
         }
 
         var tmpl = cfg.ThreadNameTemplate;
-        if (ImGui.InputText("Thread name template", ref tmpl, 80))
+        if (ImGui.InputText(Loc.S.ThreadNameTemplate, ref tmpl, 80))
         {
             cfg.ThreadNameTemplate = tmpl;
             changed = true;
         }
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Placeholders: {key}, {type}, {sender}");
+            ImGui.SetTooltip(Loc.S.ThreadTemplateTip);
 
         ImGui.Spacing();
 
         if (cfg.Mode == DiscordMode.Bot)
         {
-            ImGui.TextDisabled("Bot will auto-create threads in the configured channel.");
-            ImGui.TextDisabled("Required permissions: Create Public Threads, Send Messages in Threads.");
+            ImGui.TextDisabled(Loc.S.BotAutoCreates);
+            ImGui.TextDisabled(Loc.S.BotRequiredPerms);
             ImGui.Spacing();
             DrawKnownThreads(cfg, ref changed);
         }
         else
         {
-            ImGui.TextDisabled("Webhooks cannot create threads. Enter a pre-existing Thread ID per routing key,");
-            ImGui.TextDisabled("or switch to Bot mode for automatic thread creation.");
+            ImGui.TextDisabled(Loc.S.WebhookNoThreads1);
+            ImGui.TextDisabled(Loc.S.WebhookNoThreads2);
             ImGui.Spacing();
             DrawWebhookOverrides(cfg, ref changed);
         }
@@ -273,14 +302,14 @@ public sealed class ConfigWindow : Window, IDisposable
     {
         if (cfg.ThreadMap.Count == 0)
         {
-            ImGui.TextDisabled("No threads created yet.");
+            ImGui.TextDisabled(Loc.S.NoThreadsYet);
             return;
         }
 
         if (ImGui.BeginTable("##knownThreads", 3, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Borders))
         {
-            ImGui.TableSetupColumn("Key");
-            ImGui.TableSetupColumn("Thread ID");
+            ImGui.TableSetupColumn(Loc.S.ColumnKey);
+            ImGui.TableSetupColumn(Loc.S.ColumnThreadId);
             ImGui.TableSetupColumn("");
             ImGui.TableHeadersRow();
 
@@ -292,7 +321,7 @@ public sealed class ConfigWindow : Window, IDisposable
                 ImGui.TableNextColumn();
                 ImGui.TextUnformatted(id.ToString());
                 ImGui.TableNextColumn();
-                if (ImGui.SmallButton($"Forget##fk_{key}"))
+                if (ImGui.SmallButton($"{Loc.S.Forget}##fk_{key}"))
                 {
                     cfg.ThreadMap.Remove(key);
                     changed = true;
@@ -307,53 +336,47 @@ public sealed class ConfigWindow : Window, IDisposable
         ImGui.SetNextWindowSize(new Vector2(620, 460), ImGuiCond.Appearing);
         if (!ImGui.BeginPopupModal("##threadHelp", ImGuiWindowFlags.NoCollapse)) return;
 
-        ImGui.TextUnformatted("Thread routing keys");
+        ImGui.TextUnformatted(Loc.S.HelpRoutingKeys);
         ImGui.Separator();
-        ImGui.TextWrapped(
-            "Every chat entry is mapped to a logical \"key\" based on the threading mode. The key decides "
-          + "which Discord thread the message lands in. Webhook mode looks the key up in the Overrides table "
-          + "below; Bot mode auto-creates the thread and remembers the id.");
+        ImGui.TextWrapped(Loc.S.HelpRoutingIntro);
         ImGui.Spacing();
 
-        ImGui.BulletText("Off:                no threading, everything goes to the parent channel.");
-        ImGui.BulletText("Per Tell partner:   one thread per Tell partner. Key: tell:<Name@World>");
-        ImGui.BulletText("Per channel type:   one thread per chat type.   Key: channel:<XivChatType>");
-        ImGui.BulletText("Per sender:         one thread per sender.      Key: sender:<Name@World>");
+        ImGui.BulletText(Loc.S.HelpBulletOff);
+        ImGui.BulletText(Loc.S.HelpBulletTell);
+        ImGui.BulletText(Loc.S.HelpBulletChannel);
+        ImGui.BulletText(Loc.S.HelpBulletSender);
 
         ImGui.Spacing();
-        ImGui.TextUnformatted("Examples");
+        ImGui.TextUnformatted(Loc.S.HelpExamples);
         ImGui.Separator();
-        ImGui.BulletText("channel:Say        — all /say messages");
-        ImGui.BulletText("channel:Party      — all party chat");
-        ImGui.BulletText("channel:Ls1        — linkshell 1");
+        ImGui.BulletText(Loc.S.HelpExSay);
+        ImGui.BulletText(Loc.S.HelpExParty);
+        ImGui.BulletText(Loc.S.HelpExLs1);
         ImGui.BulletText("channel:FreeCompany");
-        ImGui.BulletText("tell:Missi Ashcroft@Odin — both directions of tells with that character");
+        ImGui.BulletText(Loc.S.HelpExTell);
         ImGui.BulletText("sender:Foo Bar@Phoenix");
 
         ImGui.Spacing();
-        ImGui.TextUnformatted("Thread name template — placeholders");
+        ImGui.TextUnformatted(Loc.S.HelpPlaceholders);
         ImGui.Separator();
-        ImGui.BulletText("{key}    — full routing key, e.g. \"Tell - Missi Ashcroft@Odin\"");
-        ImGui.BulletText("{type}   — \"Tell\" / channel type / \"Chat\"");
-        ImGui.BulletText("{sender} — partner / sender (empty for channel mode)");
+        ImGui.BulletText(Loc.S.HelpPhKey);
+        ImGui.BulletText(Loc.S.HelpPhType);
+        ImGui.BulletText(Loc.S.HelpPhSender);
 
         ImGui.Spacing();
-        ImGui.TextUnformatted("Webhook setup");
+        ImGui.TextUnformatted(Loc.S.HelpWebhookSetup);
         ImGui.Separator();
-        ImGui.TextWrapped(
-            "Webhooks cannot create threads — create the thread in Discord first, then copy its ID via "
-          + "Right-click > Copy Thread ID (with Developer Mode on). The webhook URL itself must point to the "
-          + "PARENT text channel; the plugin appends ?thread_id=… automatically.");
+        ImGui.TextWrapped(Loc.S.HelpWebhookBody);
 
         ImGui.Spacing();
         if (cfg.Threading == ThreadingMode.PerChannelType)
         {
-            ImGui.TextUnformatted("Quick-fill key for the override form below:");
+            ImGui.TextUnformatted(Loc.S.HelpQuickFill);
             DrawChannelKeyPicker();
         }
 
         ImGui.Spacing();
-        if (ImGui.Button("Close", new Vector2(120, 0))) ImGui.CloseCurrentPopup();
+        if (ImGui.Button(Loc.S.Close, new Vector2(120, 0))) ImGui.CloseCurrentPopup();
         ImGui.EndPopup();
     }
 
@@ -382,8 +405,8 @@ public sealed class ConfigWindow : Window, IDisposable
     {
         if (ImGui.BeginTable("##overrides", 3, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Borders))
         {
-            ImGui.TableSetupColumn("Key");
-            ImGui.TableSetupColumn("Thread ID");
+            ImGui.TableSetupColumn(Loc.S.ColumnKey);
+            ImGui.TableSetupColumn(Loc.S.ColumnThreadId);
             ImGui.TableSetupColumn("");
             ImGui.TableHeadersRow();
 
@@ -395,7 +418,7 @@ public sealed class ConfigWindow : Window, IDisposable
                 ImGui.TableNextColumn();
                 ImGui.TextUnformatted(id.ToString());
                 ImGui.TableNextColumn();
-                if (ImGui.SmallButton($"Remove##rm_{key}"))
+                if (ImGui.SmallButton($"{Loc.S.Remove}##rm_{key}"))
                 {
                     cfg.WebhookThreadOverrides.Remove(key);
                     changed = true;
@@ -405,12 +428,12 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 
         ImGui.SetNextItemWidth(180);
-        ImGui.InputTextWithHint("##nkey", "key (e.g. tell:Foo@Bar)", ref newThreadKey, 120);
+        ImGui.InputTextWithHint("##nkey", Loc.S.HintKey, ref newThreadKey, 120);
         ImGui.SameLine();
         ImGui.SetNextItemWidth(180);
-        ImGui.InputTextWithHint("##nid", "thread id", ref newThreadId, 32, ImGuiInputTextFlags.CharsDecimal);
+        ImGui.InputTextWithHint("##nid", Loc.S.HintThreadId, ref newThreadId, 32, ImGuiInputTextFlags.CharsDecimal);
         ImGui.SameLine();
-        if (ImGui.Button("Add") && !string.IsNullOrWhiteSpace(newThreadKey) && ulong.TryParse(newThreadId, out var tid) && tid != 0)
+        if (ImGui.Button(Loc.S.Add) && !string.IsNullOrWhiteSpace(newThreadKey) && ulong.TryParse(newThreadId, out var tid) && tid != 0)
         {
             cfg.WebhookThreadOverrides[newThreadKey.Trim()] = tid;
             newThreadKey = "";
@@ -435,7 +458,7 @@ public sealed class ConfigWindow : Window, IDisposable
         var editIdx = Array.IndexOf(ids, editingProfileId);
         if (editIdx < 0) editIdx = 0;
 
-        ImGui.Text("Editing profile:");
+        ImGui.Text(Loc.S.EditingProfile);
         ImGui.SameLine();
         ImGui.SetNextItemWidth(220);
         if (ImGui.Combo("##editProfile", ref editIdx, names, names.Length))
@@ -444,32 +467,32 @@ public sealed class ConfigWindow : Window, IDisposable
         if (editingProfileId == config.DefaultProfileId)
         {
             ImGui.SameLine();
-            ImGui.TextDisabled("(default)");
+            ImGui.TextDisabled(Loc.S.IsDefaultMarker);
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("New"))
+        if (ImGui.Button(Loc.S.New))
         {
             newNameBuffer = "";
             ImGui.OpenPopup("##newProfile");
         }
         ImGui.SameLine();
-        if (ImGui.Button("Rename"))
+        if (ImGui.Button(Loc.S.Rename))
         {
             renameBuffer = config.Profiles[editingProfileId].Name;
             ImGui.OpenPopup("##renameProfile");
         }
         ImGui.SameLine();
-        if (ImGui.Button("Duplicate"))
+        if (ImGui.Button(Loc.S.Duplicate))
         {
             var src = config.Profiles[editingProfileId];
-            var dup = config.CreateProfile(src.Name + " (copy)", src.Config);
+            var dup = config.CreateProfile(src.Name + Loc.S.CopySuffix, src.Config);
             editingProfileId = dup.Id;
             changed = true;
         }
         ImGui.SameLine();
         ImGui.BeginDisabled(config.Profiles.Count <= 1);
-        if (ImGui.Button("Delete"))
+        if (ImGui.Button(Loc.S.Delete))
         {
             pendingDeleteId = editingProfileId;
             ImGui.OpenPopup("##deleteProfile");
@@ -479,13 +502,13 @@ public sealed class ConfigWindow : Window, IDisposable
         // Set-as-default toggle — makes new / unassigned characters use this profile.
         if (editingProfileId != config.DefaultProfileId)
         {
-            if (ImGui.SmallButton("Set as default"))
+            if (ImGui.SmallButton(Loc.S.SetAsDefault))
             {
                 config.DefaultProfileId = editingProfileId;
                 changed = true;
             }
             ImGui.SameLine();
-            ImGui.TextDisabled("(current default fallback for unassigned characters)");
+            ImGui.TextDisabled(Loc.S.DefaultFallbackHint);
         }
 
         // Assignment for the logged-in character.
@@ -493,14 +516,14 @@ public sealed class ConfigWindow : Window, IDisposable
         if (cid != 0)
         {
             var charName = Plugin.PlayerState.CharacterName;
-            if (string.IsNullOrEmpty(charName)) charName = $"Character {cid}";
+            if (string.IsNullOrEmpty(charName)) charName = string.Format(Loc.S.CharacterFallbackFmt, cid);
 
             var assignedId = config.CharacterProfileMap.GetValueOrDefault(cid, config.DefaultProfileId);
             var assignedIdx = Array.IndexOf(ids, assignedId);
             if (assignedIdx < 0) assignedIdx = 0;
 
             ImGui.Spacing();
-            ImGui.Text($"Profile active for {charName}:");
+            ImGui.Text(string.Format(Loc.S.ActiveProfileForFmt, charName));
             ImGui.SameLine();
             ImGui.SetNextItemWidth(220);
             if (ImGui.Combo("##assignProfile", ref assignedIdx, names, names.Length))
@@ -513,7 +536,7 @@ public sealed class ConfigWindow : Window, IDisposable
             if (ids[assignedIdx] != editingProfileId)
             {
                 ImGui.SameLine();
-                if (ImGui.SmallButton("Edit this one"))
+                if (ImGui.SmallButton(Loc.S.EditThisOne))
                     editingProfileId = ids[assignedIdx];
             }
         }
@@ -533,7 +556,7 @@ public sealed class ConfigWindow : Window, IDisposable
 
         if (knownIds.Count == 0)
         {
-            ImGui.TextDisabled("No characters recorded yet. Log in on a character to populate this list.");
+            ImGui.TextDisabled(Loc.S.NoCharactersYet);
             return;
         }
 
@@ -545,7 +568,7 @@ public sealed class ConfigWindow : Window, IDisposable
 
         foreach (var cid in knownIds)
         {
-            var label = config.CharacterNames.TryGetValue(cid, out var n) ? n : $"Character {cid}";
+            var label = config.CharacterNames.TryGetValue(cid, out var n) ? n : string.Format(Loc.S.CharacterFallbackFmt, cid);
             var assignedId = config.CharacterProfileMap.GetValueOrDefault(cid, config.DefaultProfileId);
             var idx = Array.IndexOf(profileIds, assignedId);
             if (idx < 0) idx = 0;
@@ -560,7 +583,7 @@ public sealed class ConfigWindow : Window, IDisposable
             }
 
             ImGui.SameLine();
-            if (ImGui.SmallButton($"Clear##clr_{cid}"))
+            if (ImGui.SmallButton($"{Loc.S.Clear}##clr_{cid}"))
             {
                 config.CharacterProfileMap.Remove(cid);
                 if (cid == Plugin.PlayerState.ContentId)
@@ -576,11 +599,11 @@ public sealed class ConfigWindow : Window, IDisposable
     {
         if (!ImGui.BeginPopup("##newProfile")) return;
 
-        ImGui.Text("New profile name:");
+        ImGui.Text(Loc.S.NewProfilePrompt);
         ImGui.SetNextItemWidth(260);
         var submit = ImGui.InputText("##newName", ref newNameBuffer, 64, ImGuiInputTextFlags.EnterReturnsTrue);
 
-        if (ImGui.Button("Create") || submit)
+        if (ImGui.Button(Loc.S.Create) || submit)
         {
             var p = plugin.Configuration.CreateProfile(newNameBuffer);
             editingProfileId = p.Id;
@@ -588,7 +611,7 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.CloseCurrentPopup();
         }
         ImGui.SameLine();
-        if (ImGui.Button("Cancel")) ImGui.CloseCurrentPopup();
+        if (ImGui.Button(Loc.S.Cancel)) ImGui.CloseCurrentPopup();
 
         ImGui.EndPopup();
     }
@@ -597,11 +620,11 @@ public sealed class ConfigWindow : Window, IDisposable
     {
         if (!ImGui.BeginPopup("##renameProfile")) return;
 
-        ImGui.Text("Rename profile:");
+        ImGui.Text(Loc.S.RenameProfilePrompt);
         ImGui.SetNextItemWidth(260);
         var submit = ImGui.InputText("##rename", ref renameBuffer, 64, ImGuiInputTextFlags.EnterReturnsTrue);
 
-        if ((ImGui.Button("Save") || submit)
+        if ((ImGui.Button(Loc.S.Save) || submit)
             && plugin.Configuration.Profiles.TryGetValue(editingProfileId, out var p)
             && !string.IsNullOrWhiteSpace(renameBuffer))
         {
@@ -610,7 +633,7 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.CloseCurrentPopup();
         }
         ImGui.SameLine();
-        if (ImGui.Button("Cancel")) ImGui.CloseCurrentPopup();
+        if (ImGui.Button(Loc.S.Cancel)) ImGui.CloseCurrentPopup();
 
         ImGui.EndPopup();
     }
@@ -621,10 +644,10 @@ public sealed class ConfigWindow : Window, IDisposable
 
         var target = plugin.Configuration.Profiles.GetValueOrDefault(pendingDeleteId);
         ImGui.TextWrapped(target != null
-            ? $"Delete profile \"{target.Name}\"?\nCharacters using it will fall back to the default profile."
-            : "Profile not found.");
+            ? string.Format(Loc.S.DeleteProfileFmt, target.Name)
+            : Loc.S.ProfileNotFound);
 
-        if (ImGui.Button("Delete") && target != null)
+        if (ImGui.Button(Loc.S.Delete) && target != null)
         {
             plugin.Configuration.DeleteProfile(pendingDeleteId);
             if (editingProfileId == pendingDeleteId)
@@ -634,7 +657,7 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.CloseCurrentPopup();
         }
         ImGui.SameLine();
-        if (ImGui.Button("Cancel")) ImGui.CloseCurrentPopup();
+        if (ImGui.Button(Loc.S.Cancel)) ImGui.CloseCurrentPopup();
 
         ImGui.EndPopup();
     }

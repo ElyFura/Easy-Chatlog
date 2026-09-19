@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using EasyChatlog.Localization;
 using EasyChatlog.Models;
 using EasyChatlog.Services;
 
@@ -47,16 +48,16 @@ public sealed class ExportWindow : Window, IDisposable
             .ToArray();
 
         // --- toolbar ---
-        if (ImGui.Button("Open Settings")) plugin.ToggleConfigUi();
+        if (ImGui.Button(Loc.S.OpenSettings)) plugin.ToggleConfigUi();
         ImGui.SameLine();
-        if (ImGui.Button("Clear buffer"))
+        if (ImGui.Button(Loc.S.ClearBuffer))
         {
             plugin.Buffer.ClearHistory();
             SelectedSenders.Clear();
         }
         ImGui.SameLine();
         var enabled = cfg.DiscordEnabled;
-        if (ImGui.Checkbox("Discord live-forward", ref enabled))
+        if (ImGui.Checkbox(Loc.S.DiscordLiveForward, ref enabled))
         {
             cfg.DiscordEnabled = enabled;
             plugin.SaveConfiguration();
@@ -70,30 +71,30 @@ public sealed class ExportWindow : Window, IDisposable
         ImGui.Separator();
 
         // --- export / send buttons ---
-        if (ImGui.Button("Export TXT"))  _ = ExportAsync(ExportFormat.Txt);
+        if (ImGui.Button(Loc.S.ExportTxt))  _ = ExportAsync(ExportFormat.Txt);
         ImGui.SameLine();
-        if (ImGui.Button("Export JSON")) _ = ExportAsync(ExportFormat.Json);
+        if (ImGui.Button(Loc.S.ExportJson)) _ = ExportAsync(ExportFormat.Json);
         ImGui.SameLine();
-        if (ImGui.Button("Export HTML")) _ = ExportAsync(ExportFormat.Html);
+        if (ImGui.Button(Loc.S.ExportHtml)) _ = ExportAsync(ExportFormat.Html);
         ImGui.SameLine();
-        if (ImGui.Button("Export MD"))   _ = ExportAsync(ExportFormat.Markdown);
+        if (ImGui.Button(Loc.S.ExportMd))   _ = ExportAsync(ExportFormat.Markdown);
         ImGui.SameLine();
-        if (ImGui.Button("Send filtered to Discord")) _ = SendFilteredToDiscordAsync();
+        if (ImGui.Button(Loc.S.SendFiltered)) _ = SendFilteredToDiscordAsync();
 
         ImGui.Separator();
 
         // --- table ---
         var filtered = ApplyFilter(snapshot);
-        ImGui.Text($"Showing {filtered.Count} / {snapshot.Count} entries");
+        ImGui.Text(string.Format(Loc.S.ShowingEntriesFmt, filtered.Count, snapshot.Count));
 
         if (ImGui.BeginTable("##chatTable", 4,
                 ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable))
         {
             ImGui.TableSetupScrollFreeze(0, 1);
-            ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, 80);
-            ImGui.TableSetupColumn("Channel", ImGuiTableColumnFlags.WidthFixed, 110);
-            ImGui.TableSetupColumn("Sender", ImGuiTableColumnFlags.WidthFixed, 140);
-            ImGui.TableSetupColumn("Message", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn(Loc.S.ColumnTime, ImGuiTableColumnFlags.WidthFixed, 80);
+            ImGui.TableSetupColumn(Loc.S.ColumnChannel, ImGuiTableColumnFlags.WidthFixed, 110);
+            ImGui.TableSetupColumn(Loc.S.ColumnSender, ImGuiTableColumnFlags.WidthFixed, 140);
+            ImGui.TableSetupColumn(Loc.S.ColumnMessage, ImGuiTableColumnFlags.WidthStretch);
             ImGui.TableHeadersRow();
 
             for (var i = filtered.Count - 1; i >= 0; i--)
@@ -112,26 +113,26 @@ public sealed class ExportWindow : Window, IDisposable
 
     private void DrawSenderFilter()
     {
-        ImGui.Text("Filter by sender(s):");
+        ImGui.Text(Loc.S.FilterBySenders);
         ImGui.SameLine();
 
         int count;
         lock (SelectedSenders) { count = SelectedSenders.Count; }
 
         if (count == 0)
-            ImGui.TextDisabled("(all — live-forward sends everything)");
+            ImGui.TextDisabled(Loc.S.FilterAll);
         else
-            ImGui.TextDisabled($"({count} selected — live-forward + export use this filter)");
+            ImGui.TextDisabled(string.Format(Loc.S.FilterSelectedFmt, count));
 
         ImGui.SameLine();
-        if (ImGui.SmallButton("Clear filter"))
+        if (ImGui.SmallButton(Loc.S.ClearFilter))
         {
             lock (SelectedSenders) { SelectedSenders.Clear(); }
         }
 
         // Search box to narrow the sender list.
         ImGui.SetNextItemWidth(200);
-        ImGui.InputTextWithHint("##senderSearch", "Search sender...", ref senderSearch, 64);
+        ImGui.InputTextWithHint("##senderSearch", Loc.S.SearchSender, ref senderSearch, 64);
 
         // Compact checkbox list — show senders matching the search.
         var visibleSenders = string.IsNullOrWhiteSpace(senderSearch)
@@ -175,18 +176,18 @@ public sealed class ExportWindow : Window, IDisposable
         var entries = ApplyFilter(plugin.Buffer.SnapshotHistory());
         if (entries.Count == 0)
         {
-            plugin.Notify("Nothing to export.");
+            plugin.Notify(Loc.S.NothingToExport);
             return;
         }
 
         try
         {
             var path = await ChatExporter.ExportAsync(entries, plugin.EffectiveExportDirectory, fmt);
-            plugin.Notify($"Exported {entries.Count} entries → {path}");
+            plugin.Notify(string.Format(Loc.S.ExportedFmt, entries.Count, path));
         }
         catch (Exception ex)
         {
-            plugin.Notify($"Export failed: {ex.Message}");
+            plugin.Notify(string.Format(Loc.S.ExportFailedFmt, ex.Message));
         }
     }
 
@@ -195,25 +196,25 @@ public sealed class ExportWindow : Window, IDisposable
         var entries = ApplyFilter(plugin.Buffer.SnapshotHistory());
         if (entries.Count == 0)
         {
-            plugin.Notify("Nothing to send.");
+            plugin.Notify(Loc.S.NothingToSend);
             return;
         }
 
         var sender = plugin.DiscordSender;
         if (sender == null)
         {
-            plugin.Notify("Discord is not configured.");
+            plugin.Notify(Loc.S.DiscordNotConfigured);
             return;
         }
 
         try
         {
             await sender.SendBatchAsync(entries, CancellationToken.None);
-            plugin.Notify($"Sent {entries.Count} entries to Discord.");
+            plugin.Notify(string.Format(Loc.S.SentToDiscordFmt, entries.Count));
         }
         catch (Exception ex)
         {
-            plugin.Notify($"Discord send failed: {ex.Message}");
+            plugin.Notify(string.Format(Loc.S.DiscordSendFailedFmt, ex.Message));
         }
     }
 }
